@@ -96,6 +96,7 @@ class PolicyEvaluation(BaseModel):
     allowed_category: bool
     within_amount_cap: bool
     within_velocity_cap: bool
+    within_platform_burst_cap: bool = True
     requires_step_up_by_policy: bool
     rule_hits: list[str] = Field(default_factory=list)
 

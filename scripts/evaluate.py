@@ -15,6 +15,7 @@ import time
 import uuid
 from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
 from rich.console import Console
 from rich.table import Table
@@ -130,10 +131,67 @@ def _extract_nonce(protocol: SourceProtocol, payload: dict) -> str:
     return payload["upi_ref_id"]
 
 
+def _run_coordinated_burst_incident(
+    rng, pipeline: MandateGatewayPipeline, incident_index: int, burst_size: int, sim_now: datetime
+) -> tuple[list[CaseResult], datetime]:
+    """Simulates the exact scenario a per-agent velocity cap cannot see: a
+    ring that mints a fresh, individually clean-looking agent identity per
+    order and fires `burst_size` of them at one merchant, on one platform,
+    within a few compressed minutes. Every identity is seeded with a
+    *strong* reputation profile — established account age, healthy prior
+    transaction count, low dispute rate — so a false-approve here would be
+    entirely down to the reputation/velocity signals missing the pattern,
+    which is exactly what the platform-burst policy check exists to catch.
+    """
+    protocol = list(KEY_BY_PROTOCOL.keys())[incident_index % len(KEY_BY_PROTOCOL)]
+    key_id = KEY_BY_PROTOCOL[protocol]
+    platform = PLATFORM_BY_KEY[key_id]
+    builder = BUILDERS[protocol]
+
+    results: list[CaseResult] = []
+    for j in range(burst_size):
+        agent_id = f"eval-agent-burst-incident{incident_index}-{j}"
+        seed_agent_stats(
+            agent_id, platform, account_age_days=rng.randint(200, 600),
+            prior_transaction_count=rng.randint(50, 200),
+            prior_dispute_count=rng.randint(0, 1), prior_confirmed_fraud_count=0,
+        )
+        payload = builder(
+            agent_id=agent_id, agent_platform=platform, merchant_id="merchant_demo_001",
+            category="groceries", amount_minor_units=int(rng.lognormvariate(8.2, 0.5)),
+            key_id=key_id, private_key=get_demo_private_key(key_id),
+        )
+        sim_now += timedelta(seconds=rng.uniform(2, 10))  # a burst arrives in a tight window
+
+        start = time.perf_counter()
+        try:
+            decision = pipeline.authorize(
+                payload, protocol, auto_step_up_response=None, verbose_escalation=False, now=sim_now
+            )
+        except Exception as exc:
+            console.print(f"[red]burst incident {incident_index} case {j} raised {exc!r}[/red]")
+            continue
+        latency = (time.perf_counter() - start) * 1000
+
+        results.append(
+            CaseResult(
+                ground_truth="fraud_coordinated_burst",
+                is_fraud=True,
+                decision=decision.decision,
+                pre_escalation_decision=decision.pre_escalation_decision,
+                verification_passed=decision.verification.passed,
+                latency_ms=latency,
+            )
+        )
+    return results, sim_now
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--n", type=int, default=300)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--burst-incidents", type=int, default=2, help="Coordinated-burst incidents to inject")
+    parser.add_argument("--burst-size", type=int, default=40, help="Distinct agents per burst incident")
     args = parser.parse_args()
 
     import random
@@ -147,14 +205,24 @@ def main() -> None:
     replay_pool: list[str] = []
     results: list[CaseResult] = []
 
+    # A virtual clock, not the real one: organic cases are spread across a
+    # realistic multi-hour traffic timeline (so the hourly rolling-window
+    # signals — per-agent velocity, per-platform distinct-agent burst —
+    # actually get exercised the way they would in production) without the
+    # harness needing to sleep in real wall-clock time to do it.
+    sim_now = datetime.now(timezone.utc) - timedelta(hours=10)
+
     for i in range(args.n):
+        sim_now += timedelta(seconds=rng.uniform(20, 200))
         protocol, payload, ground_truth, is_fraud = _make_case(rng, i, replay_pool)
         if ground_truth != "fraud_replay":
             replay_pool.append(_extract_nonce(protocol, payload))
 
         start = time.perf_counter()
         try:
-            decision = pipeline.authorize(payload, protocol, auto_step_up_response=None, verbose_escalation=False)
+            decision = pipeline.authorize(
+                payload, protocol, auto_step_up_response=None, verbose_escalation=False, now=sim_now
+            )
         except Exception as exc:  # a malformed case should never crash the harness
             console.print(f"[red]case {i} raised {exc!r}, treating as REJECT[/red]")
             continue
@@ -170,6 +238,11 @@ def main() -> None:
                 latency_ms=latency,
             )
         )
+
+    for incident in range(args.burst_incidents):
+        sim_now += timedelta(minutes=rng.uniform(10, 90))  # incidents don't overlap each other
+        burst_results, sim_now = _run_coordinated_burst_incident(rng, pipeline, incident, args.burst_size, sim_now)
+        results.extend(burst_results)
 
     _report(results)
 

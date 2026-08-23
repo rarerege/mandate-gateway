@@ -28,7 +28,12 @@ class PolicyEngine:
     def reload(self) -> None:
         self.policy = self._load()
 
-    def evaluate(self, mandate: NormalizedMandate, orders_last_hour: int) -> PolicyEvaluation:
+    def evaluate(
+        self,
+        mandate: NormalizedMandate,
+        orders_last_hour: int,
+        platform_distinct_agents_last_hour: int = 0,
+    ) -> PolicyEvaluation:
         rule_hits: list[str] = []
 
         allowed = mandate.category in self.policy["allowed_categories"]
@@ -64,6 +69,18 @@ class PolicyEngine:
                 f"for non-trusted platform '{mandate.agent_platform}'"
             )
 
+        burst_cap = self.policy.get("platform_distinct_agents_cap_per_hour")
+        if burst_cap is None:
+            within_platform_burst_cap = True
+        else:
+            within_platform_burst_cap = platform_distinct_agents_last_hour <= burst_cap
+        if not within_platform_burst_cap:
+            rule_hits.append(
+                f"{platform_distinct_agents_last_hour} distinct agents on platform "
+                f"'{mandate.agent_platform}' hit merchant '{mandate.merchant_id}' in the last "
+                f"hour (cap: {burst_cap}) — looks like a coordinated burst, not one agent's velocity"
+            )
+
         if not rule_hits:
             rule_hits.append("no policy rules triggered")
 
@@ -71,6 +88,7 @@ class PolicyEngine:
             allowed_category=allowed_category,
             within_amount_cap=within_amount_cap,
             within_velocity_cap=within_velocity_cap,
+            within_platform_burst_cap=within_platform_burst_cap,
             requires_step_up_by_policy=requires_step_up,
             rule_hits=rule_hits,
         )

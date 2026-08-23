@@ -28,7 +28,10 @@ class AgentSnapshot:
         return self.prior_dispute_count / self.prior_transaction_count
 
 
-def get_or_create_agent(agent_id: str, agent_platform: str, account_age_days: int = 0) -> AgentSnapshot:
+def get_or_create_agent(
+    agent_id: str, agent_platform: str, account_age_days: int = 0, now: datetime | None = None
+) -> AgentSnapshot:
+    now = now or datetime.now(timezone.utc)
     with get_conn() as conn:
         row = conn.execute(
             "SELECT * FROM agent_history WHERE agent_id = ?", (agent_id,)
@@ -38,12 +41,12 @@ def get_or_create_agent(agent_id: str, agent_platform: str, account_age_days: in
                 """INSERT INTO agent_history
                    (agent_id, agent_platform, account_age_days, last_seen_at)
                    VALUES (?, ?, ?, ?)""",
-                (agent_id, agent_platform, account_age_days, datetime.now(timezone.utc).isoformat()),
+                (agent_id, agent_platform, account_age_days, now.isoformat()),
             )
             row = conn.execute(
                 "SELECT * FROM agent_history WHERE agent_id = ?", (agent_id,)
             ).fetchone()
-        orders_last_hour = _velocity(conn, agent_id)
+        orders_last_hour = _velocity(conn, agent_id, now)
         return AgentSnapshot(
             agent_id=row["agent_id"],
             agent_platform=row["agent_platform"],
@@ -55,8 +58,9 @@ def get_or_create_agent(agent_id: str, agent_platform: str, account_age_days: in
         )
 
 
-def _velocity(conn, agent_id: str) -> int:
-    cutoff = (datetime.now(timezone.utc) - VELOCITY_WINDOW).isoformat()
+def _velocity(conn, agent_id: str, now: datetime | None = None) -> int:
+    now = now or datetime.now(timezone.utc)
+    cutoff = (now - VELOCITY_WINDOW).isoformat()
     row = conn.execute(
         "SELECT COUNT(*) AS n FROM order_events WHERE agent_id = ? AND occurred_at > ?",
         (agent_id, cutoff),
@@ -64,18 +68,58 @@ def _velocity(conn, agent_id: str) -> int:
     return row["n"]
 
 
-def record_order_event(agent_id: str) -> None:
+@dataclass
+class PlatformBurstSnapshot:
+    agent_platform: str
+    merchant_id: str
+    distinct_agents_last_hour: int
+    total_orders_last_hour: int
+
+
+def get_platform_burst(
+    agent_platform: str, merchant_id: str, now: datetime | None = None
+) -> PlatformBurstSnapshot:
+    """The signal per-agent velocity structurally cannot see: many
+    *distinct* agent identities on the same platform hitting the same
+    merchant in a short window. Any single one of those agents can look
+    completely unremarkable — one order, no history to be suspicious about
+    — while the platform-level pattern is exactly what a coordinated ring
+    using disposable agent identities looks like. This is a merchant-scoped
+    signal (not a global agent-reputation one), so it lives here as its own
+    query rather than folded into AgentSnapshot."""
+    now = now or datetime.now(timezone.utc)
+    cutoff = (now - VELOCITY_WINDOW).isoformat()
+    with get_conn() as conn:
+        row = conn.execute(
+            """SELECT COUNT(DISTINCT agent_id) AS distinct_agents, COUNT(*) AS total
+               FROM order_events
+               WHERE agent_platform = ? AND merchant_id = ? AND occurred_at > ?""",
+            (agent_platform, merchant_id, cutoff),
+        ).fetchone()
+    return PlatformBurstSnapshot(
+        agent_platform=agent_platform,
+        merchant_id=merchant_id,
+        distinct_agents_last_hour=row["distinct_agents"],
+        total_orders_last_hour=row["total"],
+    )
+
+
+def record_order_event(
+    agent_id: str, agent_platform: str, merchant_id: str, now: datetime | None = None
+) -> None:
+    now = now or datetime.now(timezone.utc)
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO order_events (agent_id, occurred_at) VALUES (?, ?)",
-            (agent_id, datetime.now(timezone.utc).isoformat()),
+            """INSERT INTO order_events (agent_id, agent_platform, merchant_id, occurred_at)
+               VALUES (?, ?, ?, ?)""",
+            (agent_id, agent_platform, merchant_id, now.isoformat()),
         )
         conn.execute(
             """UPDATE agent_history
                SET prior_transaction_count = prior_transaction_count + 1,
                    last_seen_at = ?
                WHERE agent_id = ?""",
-            (datetime.now(timezone.utc).isoformat(), agent_id),
+            (now.isoformat(), agent_id),
         )
 
 

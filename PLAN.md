@@ -25,7 +25,7 @@ The working vertical slice described below already exists in this repo and passe
 
 - [ ] Read `ARCHITECTURE.md` §6 (Known limitations) out loud to yourself and make sure you can defend every number in it under questioning — this is what a panel interview will actually probe.
 - [ ] Re-run `python -m scripts.evaluate --n 500` (larger sample) and eyeball whether the false-approve rate stays at 0% or whether a larger sample surfaces an edge case. If it does, that's a *better* story for the pitch than a suspiciously perfect 0% — document it in the README rather than tuning it away.
-- [ ] Add one more adversarial case type to `scripts/evaluate.py` if time allows: an agent that is individually clean but part of a *coordinated* burst (multiple distinct agent IDs from the same platform hitting the same merchant in the same minute) — this is the one realistic fraud pattern the current velocity cap (per-agent, not per-platform) doesn't catch. Either fix it or name it explicitly as future work; don't let a judge find it first.
+- [x] Add one more adversarial case type to `scripts/evaluate.py`: an agent that is individually clean but part of a *coordinated* burst (multiple distinct agent IDs from the same platform hitting the same merchant in a short window) — this was the one realistic fraud pattern the per-agent velocity cap couldn't catch. **Fixed, not just named as future work:** `app/policy/engine.py` now has a `platform_distinct_agents_cap_per_hour` check fed by `app/reputation/store.get_platform_burst()`, wired into `app/decision/pipeline.py` and `app/reasoning/reasoner.py`'s step-up condition, with dedicated unit tests (`tests/test_policy.py`, `tests/test_pipeline.py`) and a dedicated `fraud_coordinated_burst` case type in `scripts/evaluate.py` (see `--burst-incidents`/`--burst-size`). Catches roughly 70% of a simulated ring in a typical run — see `ARCHITECTURE.md` §6 for the honest, unrounded story (why it's not 100%, and why that's inherent to any threshold-based detector, not a bug).
 - [ ] Double-check `.gitignore` — confirm `data/reputation_model.joblib` and `data/demo_keys.json` are committed (so a fresh clone runs immediately) and `data/*.db` is not.
 - [ ] Squash any WIP commits into a clean, readable history. A judge skimming commit history is part of the evaluation (`ai-playbook`'s own culture: "belts are earned by shipping").
 
@@ -48,11 +48,12 @@ The working vertical slice described below already exists in this repo and passe
   - *"Why isn't the decision boundary an LLM?"* → `app/reasoning/reasoner.py` module docstring, verbatim.
   - *"What happens if the reputation model is wrong?"* → the cold-start design decision + the step-up/escalation path as the safety net.
   - *"How do you know the audit log wasn't edited?"* → `verify_chain_integrity()`, live, in the interview if asked.
-  - *"What would you build next?"* → `ARCHITECTURE.md` §8, and specifically the coordinated-burst gap flagged in Phase 1.
+  - *"What would you build next?"* → `ARCHITECTURE.md` §8, including the production-hardening path for the platform-burst signal specifically (learned/seasonal caps, a shorter sliding sub-window, feeding confirmed rings back in as labels).
+  - *"Why doesn't the coordinated-burst fix catch 100% of the simulated ring?"* → `ARCHITECTURE.md` §6 — a threshold-based detector inherently can't flag a pattern before enough of the pattern has happened; naming that honestly is the point, not a gap to explain away.
 
 ## If you have extra time before the deadline
 
 Priority order, most to least valuable given what's already built:
-1. The coordinated-burst detection gap (real technical depth, directly extends the existing reputation/policy split).
+1. ~~The coordinated-burst detection gap~~ — done (see Phase 1 above and `ARCHITECTURE.md` §6/§8).
 2. A second merchant policy profile (e.g. a subscriptions-only merchant) to show the policy engine isn't hard-coded to one demo config.
 3. A minimal read-only dashboard (even a single HTML page hitting `/audit/{id}` and `/audit-chain/verify`) — only worth it if the core above is already solid, since a dashboard without the reasoning behind it is exactly the "AI wrapper" pattern this project is trying not to be.

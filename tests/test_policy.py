@@ -74,3 +74,29 @@ def test_large_amount_from_trusted_platform_skips_step_up():
         orders_last_hour=0,
     )
     assert not result.requires_step_up_by_policy
+
+
+def test_coordinated_burst_of_distinct_agents_trips_platform_cap():
+    """The gap a single agent's own velocity cap structurally cannot see:
+    many *distinct* agent identities on the same platform hitting this
+    merchant. Each one individually has orders_last_hour=0 — velocity alone
+    would wave every single one through."""
+    engine = PolicyEngine()
+    result = engine.evaluate(
+        _mandate(category="groceries", amount_minor_units=10000, agent_platform="unknown-platform"),
+        orders_last_hour=0,
+        platform_distinct_agents_last_hour=25,
+    )
+    assert not result.within_platform_burst_cap
+    assert not result.hard_block  # soft signal -> step-up, not an automatic reject
+    assert any("coordinated burst" in hit for hit in result.rule_hits)
+
+
+def test_few_distinct_agents_on_platform_does_not_trip_burst_cap():
+    engine = PolicyEngine()
+    result = engine.evaluate(
+        _mandate(category="groceries", amount_minor_units=10000, agent_platform="unknown-platform"),
+        orders_last_hour=0,
+        platform_distinct_agents_last_hour=3,
+    )
+    assert result.within_platform_burst_cap

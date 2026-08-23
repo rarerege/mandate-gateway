@@ -50,9 +50,13 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS order_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 agent_id TEXT NOT NULL,
+                agent_platform TEXT NOT NULL DEFAULT '',
+                merchant_id TEXT NOT NULL DEFAULT '',
                 occurred_at TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_order_events_agent ON order_events(agent_id, occurred_at);
+            CREATE INDEX IF NOT EXISTS idx_order_events_platform_merchant
+                ON order_events(agent_platform, merchant_id, occurred_at);
 
             CREATE TABLE IF NOT EXISTS audit_log (
                 seq INTEGER PRIMARY KEY AUTOINCREMENT,

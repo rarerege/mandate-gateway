@@ -66,7 +66,7 @@ scripts/
   run_demo_scenarios.py  # the 4 pitch-video scenarios, run for real
   evaluate.py             # adversarial eval harness with measured metrics
   mandate_factory.py      # builds real, signed AP2/ACP/UPI-agentic payloads for demos/tests
-tests/                    # 19 tests across verification, policy, reputation, and the full pipeline
+tests/                    # 22 tests across verification, policy, reputation, and the full pipeline
 ```
 
 ## The one architectural decision worth understanding before you read the code

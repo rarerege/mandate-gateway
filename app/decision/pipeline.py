@@ -28,7 +28,7 @@ from app.policy.engine import PolicyEngine
 from app.protocols.registry import get_adapter
 from app.reasoning.reasoner import decide_action, generate_rationale
 from app.reputation.model import ReputationModel
-from app.reputation.store import get_or_create_agent, record_order_event, record_outcome
+from app.reputation.store import get_or_create_agent, get_platform_burst, record_order_event, record_outcome
 from app.schemas import Decision, GatewayDecision, SourceProtocol
 from app.verification.trust_roots import REGISTRY
 from app.verification.verifier import verify_mandate
@@ -45,18 +45,31 @@ class MandateGatewayPipeline:
         protocol: SourceProtocol,
         auto_step_up_response: StepUpResponse | None = None,
         verbose_escalation: bool = True,
+        now: datetime | None = None,
     ) -> GatewayDecision:
+        """`now`, when supplied, is the single instant every history/velocity
+        lookup and write for this call is evaluated against. Production
+        callers should never pass it — it exists so the evaluation harness
+        can simulate a realistic multi-hour traffic timeline (organic
+        arrivals spread out, a coordinated-burst incident compressed into a
+        few minutes) without the whole run needing to take multiple hours
+        of real wall-clock time to actually test the hourly rolling
+        windows."""
         start = time.perf_counter()
+        now = now or datetime.now(timezone.utc)
 
         adapter = get_adapter(protocol)
         mandate = adapter.to_normalized_mandate(raw_payload)
 
         verification = verify_mandate(mandate, REGISTRY)
 
-        snapshot = get_or_create_agent(mandate.agent_id, mandate.agent_platform)
+        snapshot = get_or_create_agent(mandate.agent_id, mandate.agent_platform, now=now)
         reputation = self.reputation_model.score(mandate, snapshot)
 
-        policy = self.policy_engine.evaluate(mandate, snapshot.orders_last_hour)
+        burst = get_platform_burst(mandate.agent_platform, mandate.merchant_id, now=now)
+        policy = self.policy_engine.evaluate(
+            mandate, snapshot.orders_last_hour, burst.distinct_agents_last_hour
+        )
 
         decision, confidence = decide_action(verification, reputation, policy)
         pre_escalation_decision = decision
@@ -100,7 +113,7 @@ class MandateGatewayPipeline:
         # Only record the order event (which feeds future velocity checks)
         # once we know the request was genuinely processed, not replayed.
         if verification.not_replayed:
-            record_order_event(mandate.agent_id)
+            record_order_event(mandate.agent_id, mandate.agent_platform, mandate.merchant_id, now=now)
 
         latency_ms = (time.perf_counter() - start) * 1000
 
@@ -117,7 +130,7 @@ class MandateGatewayPipeline:
             reputation=reputation,
             policy=policy,
             latency_ms=latency_ms,
-            created_at=datetime.now(timezone.utc),
+            created_at=now,
         )
 
         entry_hash = append_entry(result.decision_id, result.model_dump(mode="json"))

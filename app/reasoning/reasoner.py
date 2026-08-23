@@ -59,6 +59,7 @@ def decide_action(
     needs_step_up = (
         policy.requires_step_up_by_policy
         or not policy.within_velocity_cap
+        or not policy.within_platform_burst_cap
         or reputation.score < REPUTATION_STEP_UP_BELOW
     )
     if needs_step_up:

@@ -27,6 +27,20 @@ amount_caps_minor_units:
 
 velocity_cap_per_hour: 4  # orders/hour from a single agent before step-up
 
+platform_distinct_agents_cap_per_hour: 15
+  # A single agent can only ever trip velocity_cap_per_hour above. A ring
+  # that spins up a fresh, individually-clean agent identity per order
+  # never trips it — each agent places one order. This cap looks at the
+  # same platform + merchant pair instead of a single agent: more than 15
+  # *distinct* agent_ids hitting this merchant from one platform within an
+  # hour is treated as a coordinated burst, regardless of how clean any one
+  # of those identities looks in isolation. Calibrated against
+  # scripts/evaluate.py's simulated organic traffic (see its --burst-size /
+  # --burst-incidents flags): normal spread-out growth for this
+  # demo-scale merchant stays comfortably under this in any rolling hour;
+  # a ring that fires dozens of fresh identities within a few minutes blows
+  # straight through it.
+
 step_up_amount_threshold_minor_units: 300000  # ₹3,000+ always gets a step-up
   # regardless of reputation, unless the agent is on the trusted allow-list.
 
