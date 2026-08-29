@@ -81,3 +81,43 @@ def test_unknown_signing_key_fails():
     result = verify_mandate(mandate, registry)
     assert not result.passed
     assert not result.trust_root_known
+
+
+def test_relabelled_platform_after_signing_fails_signature_check():
+    """agent_platform is part of the signed bytes specifically so it can't
+    be changed in flight after signing without invalidating the signature —
+    e.g. a relay/MITM trying to relabel which platform an already-signed
+    mandate claims to be from."""
+    registry, key_id, private_key = _fresh_registry_and_key()  # key_id registered to google-gemini
+    payload = build_ap2_payload(
+        agent_id="agent-x", agent_platform="google-gemini", merchant_id="m1",
+        category="groceries", amount_minor_units=1000, key_id=key_id, private_key=private_key,
+    )
+    payload["agent"]["platform"] = "openai-chatgpt"  # tampered post-signing, signature untouched
+    mandate = get_adapter(SourceProtocol.AP2).to_normalized_mandate(payload)
+    result = verify_mandate(mandate, registry)
+    assert not result.passed
+    assert not result.signature_valid
+
+
+def test_agent_lying_about_its_own_platform_fails_trust_root_cross_check():
+    """A different attack from the one above: the agent has a perfectly
+    real, validly-registered signing key and signs honestly over its own
+    (false) platform claim. The signature is internally consistent, so
+    only cross-checking the claim against what the trust registry actually
+    has that key_id registered to can catch it."""
+    registry = TrustRootRegistry()
+    private_key, public_key = generate_keypair()
+    key_id = "test-key-openai"
+    registry.register(TrustRoot(key_id=key_id, platform="openai-chatgpt", public_key=public_key))
+
+    payload = build_ap2_payload(
+        agent_id="agent-x", agent_platform="google-gemini",  # false: this key is registered to openai-chatgpt
+        merchant_id="m1", category="groceries", amount_minor_units=1000,
+        key_id=key_id, private_key=private_key,
+    )
+    mandate = get_adapter(SourceProtocol.AP2).to_normalized_mandate(payload)
+    result = verify_mandate(mandate, registry)
+    assert result.signature_valid  # the signature itself is genuinely valid...
+    assert not result.platform_matches_trust_root  # ...but the platform claim is a lie
+    assert not result.passed

@@ -18,6 +18,7 @@ def _sign_canonical(
     mandate_id: str,
     protocol: SourceProtocol,
     agent_id: str,
+    agent_platform: str,
     merchant_id: str,
     category: str,
     amount_minor_units: int,
@@ -27,11 +28,16 @@ def _sign_canonical(
     nonce: str,
     private_key: Ed25519PrivateKey,
 ) -> str:
+    # agent_platform is part of the signed canonical bytes (see
+    # NormalizedMandate.canonical_signing_bytes) precisely so a mandate
+    # can't be relabelled to a different platform after signing — so it
+    # must be the *real* value here, not a placeholder distinct from what
+    # actually ships in the payload.
     placeholder = NormalizedMandate(
         mandate_id=mandate_id,
         source_protocol=protocol,
         agent_id=agent_id,
-        agent_platform="placeholder",
+        agent_platform=agent_platform,
         user_reference="placeholder",
         merchant_id=merchant_id,
         category=category,
@@ -68,7 +74,7 @@ def build_ap2_payload(
     nonce = nonce or str(uuid.uuid4())
 
     signature = _sign_canonical(
-        mandate_id, SourceProtocol.AP2, agent_id, merchant_id, category,
+        mandate_id, SourceProtocol.AP2, agent_id, agent_platform, merchant_id, category,
         amount_minor_units, currency, issued_at, expires_at, nonce, private_key,
     )
     if tamper_signature:
@@ -113,7 +119,7 @@ def build_acp_payload(
     nonce = nonce or str(uuid.uuid4())
 
     signature = _sign_canonical(
-        mandate_id, SourceProtocol.ACP, agent_id, merchant_id, category,
+        mandate_id, SourceProtocol.ACP, agent_id, agent_platform, merchant_id, category,
         amount_minor_units, currency, issued_at, expires_at, nonce, private_key,
     )
     if tamper_signature:
@@ -157,7 +163,7 @@ def build_upi_agentic_payload(
     nonce = nonce or str(uuid.uuid4())
 
     signature = _sign_canonical(
-        mandate_id, SourceProtocol.UPI_AGENTIC, agent_id, merchant_id, category,
+        mandate_id, SourceProtocol.UPI_AGENTIC, agent_id, agent_platform, merchant_id, category,
         amount_minor_units, currency, issued_at, expires_at, nonce, private_key,
     )
     if tamper_signature:

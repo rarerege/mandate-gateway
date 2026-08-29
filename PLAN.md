@@ -20,6 +20,8 @@ The working vertical slice described below already exists in this repo and passe
 - [x] `scripts/run_demo_scenarios.py` — the 4 demo cases, run end-to-end against the real pipeline
 - [x] `scripts/evaluate.py` — a 300-case adversarial eval reporting false-approve rate, verifier accuracy, and latency
 - [x] `ARCHITECTURE.md` written against what's actually built, including an honest limitations section
+- [x] Coordinated-burst detection (per-platform distinct-agent cap), with a fixed evaluation-harness timing bug that had been masking real friction numbers
+- [x] Found and fixed a real gap in the verifier itself: `agent_platform` used to be neither signed nor cross-checked against the trust registry, so a mandate could lie about which platform it came from — undermining the trusted-platform exemption and giving a ring a way to dodge the coordinated-burst detector by relabelling itself. Now signed into the mandate and cross-checked (`app/verification/verifier.py`, 24 tests total, 2 new ones proving the specific attacks this closes)
 
 ## Phase 1 — Harden (before you touch the pitch video)
 

@@ -61,6 +61,7 @@ class NormalizedMandate(BaseModel):
             self.mandate_id,
             self.source_protocol.value,
             self.agent_id,
+            self.agent_platform,
             self.merchant_id,
             self.category,
             str(self.amount_minor_units),
@@ -77,11 +78,18 @@ class VerificationResult(BaseModel):
     not_expired: bool
     not_replayed: bool
     trust_root_known: bool
+    platform_matches_trust_root: bool = True
     reasons: list[str] = Field(default_factory=list)
 
     @property
     def passed(self) -> bool:
-        return self.signature_valid and self.not_expired and self.not_replayed and self.trust_root_known
+        return (
+            self.signature_valid
+            and self.not_expired
+            and self.not_replayed
+            and self.trust_root_known
+            and self.platform_matches_trust_root
+        )
 
 
 class ReputationResult(BaseModel):

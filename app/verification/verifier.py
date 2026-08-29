@@ -1,10 +1,24 @@
 """Mandate verification: the security-critical core of the gateway.
 
-Four independent checks, all of which must pass:
-  1. Signature  — was this exact payload signed by a key we recognise?
-  2. Expiry     — is `expires_at` still in the future?
-  3. Replay     — has this nonce been seen before (same mandate re-sent)?
-  4. Trust root — is the signing key registered at all?
+Five independent checks, all of which must pass:
+  1. Signature       — was this exact payload signed by a key we recognise?
+  2. Expiry          — is `expires_at` still in the future?
+  3. Replay          — has this nonce been seen before (same mandate re-sent)?
+  4. Trust root      — is the signing key registered at all?
+  5. Platform binding — does the *claimed* agent_platform actually match the
+                         platform that signing key is registered to?
+
+Check 5 closes a real gap found after ship: `agent_platform` used to be
+neither part of the signed bytes nor cross-checked against the trust
+registry, so a mandate could claim to be from any platform it liked —
+letting an attacker borrow a trusted platform's step-up exemption, or
+dodge the per-platform coordinated-burst detector (app/reputation/store.py)
+by relabelling which platform a burst of orders claims to be on. Now the
+platform is signed (see NormalizedMandate.canonical_signing_bytes) *and*
+cross-checked here against the registry entry for the actual signing key —
+signing it stops an in-flight relabel from surviving signature
+verification; cross-checking it stops a legitimately-keyed agent from
+simply lying about which platform it is in the first place.
 
 Each check is intentionally cheap, deterministic, and independent of any
 LLM call — an authorization boundary is not something to hand to a language
@@ -66,6 +80,17 @@ def verify_mandate(
     if not not_replayed:
         reasons.append(f"nonce '{mandate.nonce}' was already used by a prior request (replay)")
 
+    # Only meaningful once we know which trust root actually signed this —
+    # an unknown key already fails closed above, so there's nothing to
+    # cross-check the platform claim against.
+    platform_matches_trust_root = True
+    if trust_root_known and mandate.agent_platform != trust_root.platform:
+        platform_matches_trust_root = False
+        reasons.append(
+            f"claimed platform '{mandate.agent_platform}' does not match the platform "
+            f"'{trust_root.platform}' that signing key '{mandate.signing_key_id}' is registered to"
+        )
+
     if not reasons:
         reasons.append("all checks passed")
 
@@ -74,5 +99,6 @@ def verify_mandate(
         not_expired=not_expired,
         not_replayed=not_replayed,
         trust_root_known=trust_root_known,
+        platform_matches_trust_root=platform_matches_trust_root,
         reasons=reasons,
     )
