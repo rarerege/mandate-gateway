@@ -1,0 +1,14 @@
+{
+  "ap2-google-2026-01": {
+    "platform": "google-gemini",
+    "private_key_hex": "c7f3dd6f4ca41a90375a5c74a734df0009e889a8eb2032728fe35e314888013c"
+  },
+  "acp-openai-2026-01": {
+    "platform": "openai-chatgpt",
+    "private_key_hex": "f1a5175b4bea735f3b9f8079f503d4333bd14eb4a4a5753c590cf8418733f9d8"
+  },
+  "upi-npci-claude-2026-01": {
+    "platform": "npci-upi-agentic",
+    "private_key_hex": "591924bb3ffeb0d8f5a5615ba55e994840575ec9960de5aa233c36594b67c43a"
+  }
+}
