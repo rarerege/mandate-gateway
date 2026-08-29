@@ -1,0 +1,36 @@
+# Merchant-defined policy — this file is the merchant's explicit, auditable
+# say over what an agent is allowed to buy. Nothing in the reasoning layer
+# can override a hard rule defined here; it can only explain the outcome.
+#
+# Mirrors Razorpay's own published Agent Studio principle: "agents do not
+# create new discounts, modify pricing, or decide independently" — the
+# gateway's job is to enforce a merchant's own configuration, not invent one.
+
+merchant_id: "merchant_demo_001"
+
+allowed_categories:
+  - groceries
+  - electronics
+  - apparel
+  - home_goods
+  - subscriptions
+
+denied_categories:
+  - gift_cards
+  - crypto
+  - jewellery
+
+amount_caps_minor_units:
+  default: 500000        # ₹5,000 default per-order cap
+  electronics: 1500000   # ₹15,000 for electronics specifically
+  subscriptions: 200000  # ₹2,000
+
+velocity_cap_per_hour: 4  # orders/hour from a single agent before step-up
+
+step_up_amount_threshold_minor_units: 300000  # ₹3,000+ always gets a step-up
+  # regardless of reputation, unless the agent is on the trusted allow-list.
+
+trusted_agent_platforms:
+  - google-gemini
+  - openai-chatgpt
+  - npci-upi-agentic
