@@ -35,6 +35,8 @@ uvicorn app.main:app --reload
 
 `data/reputation_model.joblib` and `data/demo_keys.json` are committed so the quickstart above works on a fresh clone without retraining or reseeding — the commands are still there so you can regenerate both from scratch and see exactly how.
 
+> **Security note:** the private keys in `data/demo_keys.json` are throwaway, demo-only Ed25519 keys generated for this prototype. They stand in for the Google, OpenAI and NPCI signing keys, which a real deployment would never commit to a repository, and they protect nothing of value.
+
 No `ANTHROPIC_API_KEY`? Everything above still runs — the rationale generator falls back to a deterministic template. Set the env var to have Claude write the merchant-facing explanation instead (see `app/reasoning/reasoner.py`).
 
 ## API
